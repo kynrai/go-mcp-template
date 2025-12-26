@@ -9,18 +9,22 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kynrai/go-mcp-template/tools/greeter"
+	"github.com/kynrai/go-mcp-template/tools/content"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 var (
-	stdioTransport      bool = false
-	httpStreamTransport bool = false
+	MCPHost           string
+	MCPPort           string
+	MCPTransportStdio bool
+	MCPTransportHTTP  bool
 )
 
-func parseFlags() {
-	flag.BoolVar(&stdioTransport, "stdio", false, "Set the MCP transport to stdio")
-	flag.BoolVar(&httpStreamTransport, "http", false, "Set the MCP transport to HTTP streaming")
+func parseConfig() {
+	flag.StringVar(&MCPHost, "host", "localhost", "The host for the MCP server")
+	flag.StringVar(&MCPPort, "port", "3001", "The port for the MCP server")
+	flag.BoolVar(&MCPTransportStdio, "stdio", false, "Set the MCP transport to stdio")
+	flag.BoolVar(&MCPTransportHTTP, "http", false, "Set the MCP transport to HTTP streaming")
 
 	flag.Usage = func() {
 		fmt.Printf("Usage of %s:\n", filepath.Base(os.Args[0]))
@@ -28,41 +32,28 @@ func parseFlags() {
 	}
 	flag.Parse()
 
-	// check ony one transport is selected using exclusive or
 	transports := 0
-	if stdioTransport {
+	if MCPTransportStdio {
 		transports++
 	}
-	if httpStreamTransport {
+	if MCPTransportHTTP {
 		transports++
 	}
-	if transports != 1 {
-		exitOneTransport()
-	}
 
-}
-
-func exitOneTransport() {
-	if !flag.Parsed() {
-		flag.Parse()
+	if transports == 0 {
+		log.Fatal("No transport specified, defaulting to -stdio ")
+	} else if transports > 1 {
+		log.Fatal("You can only specify one transport at a time")
 	}
-	fmt.Printf("Exactly one transport must be specified\n\n")
-	flag.Usage()
-	os.Exit(0)
 }
 
 func runMCPServer() {
-	parseFlags()
-
+	parseConfig()
 	server := mcp.NewServer(&mcp.Implementation{Name: "example", Version: "v1.0.0"}, nil)
-	greeter.RegisterTool(server)
+	content.RegisterTools(server)
 
 	switch {
-	case stdioTransport:
-		if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-			log.Fatal(err)
-		}
-	case httpStreamTransport:
+	case MCPTransportHTTP:
 		handler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
 			return server
 		}, nil)
@@ -71,9 +62,10 @@ func runMCPServer() {
 			log.Fatalf("Server failed: %v", err)
 		}
 	default:
-		exitOneTransport()
+		if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+			log.Fatal(err)
+		}
 	}
-
 }
 
 func main() {
